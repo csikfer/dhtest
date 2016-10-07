@@ -91,7 +91,7 @@ extern u_int32_t listen_timeout;
 
 int open_socket()
 {
-	int sock_new, non_block, tmp;
+/*	int sock_new, non_block, tmp; */
 	sock_packet = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 	if(sock_packet < 0) {
 		perror("--Error on creating the socket--");
@@ -369,7 +369,7 @@ int send_packet(int pkt_type)
  */
 int recv_packet(int pkt_type) 
 {
-	int ret, sock_len, retval, chk_pkt_state, tmp = 0;
+    int ret, sock_len, retval, chk_pkt_state/* , tmp = 0 */;
 	fd_set read_fd;
 	struct timeval tval;
 	tval.tv_sec = 5; 
@@ -504,7 +504,8 @@ int set_rand_dhcp_xid()
  */
 u_int16_t ipchksum(u_int16_t *buff, int words) 
 {
-	unsigned int sum, i;
+    unsigned int sum;
+    int i;
 	sum = 0;
 	for(i = 0;i < words; i++){
 		sum = sum + *(buff + i);
@@ -518,7 +519,8 @@ u_int16_t ipchksum(u_int16_t *buff, int words)
  */
 u_int16_t icmpchksum(u_int16_t *buff, int words) 
 {
-	unsigned int sum, i;
+    unsigned int sum;
+    int i;
 	unsigned int last_word = 0;
 	/* Checksum enhancement for odd packets */
 	if((icmp_len % 2) == 1) {
@@ -546,7 +548,8 @@ u_int16_t icmpchksum(u_int16_t *buff, int words)
  */
 u_int16_t l4_sum(u_int16_t *buff, int words, u_int16_t *srcaddr, u_int16_t *dstaddr, u_int16_t proto, u_int16_t len) 
 {
-	unsigned int sum, i, last_word = 0;
+    unsigned int sum, last_word = 0;
+    int i;
 
 	/* Checksum enhancement - Support for odd byte packets */
 	if((htons(len) % 2) == 1) {
@@ -1200,6 +1203,66 @@ int set_serv_id_opt50()
 	return 0;
 }
 
+/**/
+
+void getDhcpServerIp(u_int32_t *pDhcpIp, u_int32_t *pGwIp)
+{
+    map_all_layer_ptr(DHCP_MSGOFFER);
+
+    while(*(dhopt_pointer_g) != DHCP_END) {
+
+        switch(*(dhopt_pointer_g)) {
+            case DHCP_SERVIDENT:
+                *pDhcpIp = *(u_int32_t *)(dhopt_pointer_g + 2);
+                // printf("DHCP_SERVIDENT: %s\n", get_ip_str(*pDhcpIp));
+                break;
+            case DHCP_LEASETIME:
+                break;
+            case DHCP_SUBNETMASK:
+                break;
+            case DHCP_ROUTER:
+                // First only !!!
+                if (0 < (*(dhopt_pointer_g + 1) / 4))
+                    *pGwIp = *(u_int32_t *)(dhopt_pointer_g + 2);
+                // printf("DHCP_SERVIDENT: %s\n", get_ip_str(*pGwIp));
+                break;
+            case DHCP_DNS:
+/*				for(tmp = 0; tmp < ((*(dhopt_pointer_g + 1)) / 4); tmp++) {
+                    if(json_flag) {
+                                                if(!json_first) {
+                                                        fprintf(stdout, ",");
+                                                } else {
+                                                        json_first = 0;
+                                                }
+
+                                                fprintf(stdout, "{\"msg\":\"DNS server - %s\","
+                                                                "\"result\":\"info\","
+                                                                "\"result-type\":\"option\","
+                                                                "\"result-option\":\"dns\","
+                                                                "\"result-router\":\"%s\"}",
+                                get_ip_str(*(u_int32_t *)(dhopt_pointer_g + 2 + (tmp * 4))),
+                                get_ip_str(*(u_int32_t *)(dhopt_pointer_g + 2 + (tmp * 4))));
+                                        } else {
+                        fprintf(stdout, "DNS server - %s\n", get_ip_str(*(u_int32_t *)(dhopt_pointer_g + 2 + (tmp * 4))));
+                    }
+                }*/
+                break;
+
+            case DHCP_FQDN:
+                 break;
+            default:
+                break;
+        }
+
+        if (*(dhopt_pointer_g) == DHCP_PAD) {
+            /* DHCP_PAD option - increment dhopt_pointer_g by one */
+            dhopt_pointer_g = dhopt_pointer_g + 1;
+        } else {
+            dhopt_pointer_g = dhopt_pointer_g + *(dhopt_pointer_g + 1) + 2;
+        }
+    }
+}
+
 /*
  * Prints the DHCP offer/ack info
  */
@@ -1575,7 +1638,7 @@ int get_dhinfo()
 {
 	FILE *dh_file;
 	u_char aux_dmac[ETHER_ADDR_LEN];
-	char mac_tmp[20], acq_ip_tmp[20], serv_id_tmp[20], dmac_tmp[20], ip_listen_tmp[10];
+    char mac_tmp[20], acq_ip_tmp[20], serv_id_tmp[20]/*, dmac_tmp[20]*/, ip_listen_tmp[10];
 	pid_t dh_pid;
 	dh_file = fopen(dhmac_fname, "w");
 	if(dh_file == NULL) {

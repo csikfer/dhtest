@@ -70,6 +70,14 @@ u_int8_t unicast_flag = 0;
 u_int8_t nagios_flag = 0;
 u_int8_t json_flag = 0;
 u_int8_t json_first = 1;
+u_int8_t diskover_only = 0;
+u_int8_t sniff = 0;
+uint32_t auth_srv_addr = 0;
+uint32_t auth_gw_addr = 0;
+
+uint32_t rec_srv_addr = 0;
+uint32_t rec_gw_addr = 0;
+
 char *giaddr = "0.0.0.0";
 char *server_addr = "255.255.255.255";
 
@@ -131,7 +139,11 @@ void print_help(char *cmd)
 	fprintf(stdout, "  -S, --server\t\t[ address ]\t# Use server address instead of 255.255.255.255\n");
 	fprintf(stdout, "  -j, --json\t\t\t\t# Set the output format to json\n");
 	fprintf(stdout, "  -V, --verbose\t\t\t\t# Prints DHCP offer and ack details\n");
-	fprintf(stdout, "  dhtest version 1.4\n");
+    fprintf(stdout, "  -D, --diskover-only\t\t\t\t# Discover only, omit request\n");
+    fprintf(stdout, "  -W, --sniff\t\t\t\tMore sniffing, aftre first ansver\n");
+    fprintf(stdout, "  -A, --auth-srv-addr\t\t\t\t# Authorized server address\n");
+    fprintf(stdout, "  -G, --auth-gw-addr\t\t\t\t# Authorized gateway address\n");
+    fprintf(stdout, "  dhtest version 1.4\n");
 }
 
 
@@ -172,12 +184,16 @@ int main(int argc, char *argv[])
 		{ "server", required_argument, 0, 'S'},
 		{ "release", no_argument, 0, 'r'},
 		{ "json", no_argument, 0, 'j'},
-		{ 0, 0, 0, 0 }
+        { "diskover-only", no_argument, 0, 'D'},
+        { "sniff", no_argument, 0, 'W'},
+        { "auth-srv-addr", required_argument, 0, 'A'},
+        { "auth-gw-addr", required_argument, 0, 'G'},
+        { 0, 0, 0, 0 }
 	};
 
 	/*getopt routine to get command line arguments*/
 	while(get_tmp < argc) {
-		get_cmd  = getopt_long(argc, argv, "m:i:v:t:bfVrpansju::T:P:g:S:I:o:k:L:h:d:c:",\
+        get_cmd  = getopt_long(argc, argv, "m:i:v:t:bfVrpansjDWu::T:P:g:S:I:o:k:L:h:d:c:A:G:",\
 				long_options, &option_index);
 		if(get_cmd == -1 ) {
 			break;
@@ -295,11 +311,11 @@ int main(int argc, char *argv[])
                                 //scanf the custom dhcp option
                                 //format - option_no_dec,str|num|hex|ip,option_value
                                 
-                                u_int8_t option_no, option_type;
+                                u_int8_t option_no/*, option_type*/;
                                 char option_value[256] = { 0 };
                                 u_int32_t option_value_num = { 0 }, option_value_ip = { 0 };
                                 int option_index = 0;
-                                int scanf_state;
+                                // int scanf_state;
 
                                 if ((sscanf((char *)optarg, "%u,str,%255[^\n]s", (u_int32_t *) &option_no, option_value)) == 2) {
                                     if ((strlen(option_value) >= 256)) {
@@ -448,8 +464,20 @@ int main(int argc, char *argv[])
 			case 'j':
 				json_flag = 1;
 				break;
-
-			default:
+            case 'D':
+                diskover_only = 1;
+                break;
+            case 'W':
+                sniff = 1;
+                if (timeout == 0) timeout = 3;  // default time out
+                break;
+            case 'A':
+                auth_srv_addr = inet_addr(optarg);
+                break;
+            case 'G':
+                auth_gw_addr = inet_addr(optarg);
+                break;
+            default:
 				exit(2);
 		}
 		get_tmp++;
@@ -568,19 +596,82 @@ int main(int argc, char *argv[])
 	build_dhpacket(DHCP_MSGDISCOVER);	/* Build DHCP discover packet */
 
 	int dhcp_offer_state = 0;
-	while(dhcp_offer_state != DHCP_OFFR_RCVD) {
+    int received_count = 0;
+    while(dhcp_offer_state != DHCP_OFFR_RCVD || sniff) {
 
+        if (sniff && received_count > 0 && dhcp_offer_state == DHCP_DISC_RESEND) break;
 		/* Sends DHCP discover packet */
-		send_packet(DHCP_MSGDISCOVER);
+        if (dhcp_offer_state == 0 || dhcp_offer_state == DHCP_DISC_RESEND) {
+            send_packet(DHCP_MSGDISCOVER);
+        }
 		/*
 		 * recv_packet functions returns when the specified 
 		 * packet is received
 		 */
-		dhcp_offer_state = recv_packet(DHCP_MSGOFFER); 
+        dhcp_offer_state = recv_packet(DHCP_MSGOFFER);
 
-		if(timeout) {
+        if (dhcp_offer_state == DHCP_OFFR_RCVD) {
+            if (diskover_only || auth_srv_addr || auth_gw_addr) {
+                getDhcpServerIp(&rec_srv_addr , &rec_gw_addr);
+                if ((auth_srv_addr != 0 && auth_srv_addr != rec_srv_addr)
+                 || (auth_gw_addr  != 0 && auth_gw_addr  != rec_gw_addr )) {
+                    if (nagios_flag) {
+                        fprintf(stdout, "CRITICAL: Offer IP: %s; ", get_ip_str(dhcph_g->dhcp_yip));
+
+                        if (auth_gw_addr  != 0 && auth_gw_addr  != rec_gw_addr)
+                            fprintf(stdout, "Unauthorized gateway : %s; ", get_ip_str(rec_gw_addr));
+                        else
+                            fprintf(stdout, "Gateway : %s; ", get_ip_str(rec_gw_addr));
+
+                        if (auth_srv_addr != 0 && auth_srv_addr != rec_srv_addr)
+                            fprintf(stdout, "Unauthorized server : %s\n", get_ip_str(rec_srv_addr));
+                        else
+                            fprintf(stdout, "DHCP Srv.: %s\n",get_ip_str(rec_srv_addr));
+
+                        exit(2);
+                    }
+                    /*else if (json_flag) {
+                        ...
+                    }*/
+                    else {
+                        if (auth_srv_addr != 0 && auth_srv_addr != rec_srv_addr) {
+                            fprintf(stdout, "Unauthorized DHCP server : %s !\n", get_ip_str(rec_srv_addr));
+                        }
+                        if (auth_gw_addr != 0 && auth_gw_addr != rec_gw_addr) {
+                            fprintf(stdout, "Unauthorized gateway : %s !\n", get_ip_str(rec_gw_addr));
+                        }
+                    }
+                }
+            }
+            if (!nagios_flag && !json_flag) {
+                fprintf(stdout, "DHCP offer received\t - ");
+            } else if(!nagios_flag) {
+                if(!json_first) {
+                    fprintf(stdout, ",");
+                } else {
+                    json_first = 0;
+                }
+
+                fprintf(stdout, "{\"msg\":\"DHCP offer received - %s\","
+                        "\"result\":\"success\","
+                        "\"result-type\":\"OFFER\","
+                        "\"result-value\":\"%s\""
+                        "}",
+                    get_ip_str(dhcph_g->dhcp_yip), get_ip_str(dhcph_g->dhcp_yip));
+            }
+
+            set_serv_id_opt50();
+            if (!nagios_flag && !json_flag)
+                fprintf(stdout, "Offered IP : %s\n", get_ip_str(dhcph_g->dhcp_yip));
+            if(!nagios_flag && verbose) {
+                print_dhinfo(DHCP_MSGOFFER);
+            }
+            received_count++;
+        }
+        else if(timeout) {
 			time_now = time(NULL);
 			if((time_now - time_last) >= timeout) {
+                if (received_count) break;
 				if (nagios_flag) {
 					fprintf(stdout, "CRITICAL: Timeout reached: DISCOVER.");
 				} else if(json_flag) {
@@ -602,32 +693,16 @@ int main(int argc, char *argv[])
 				exit(2);
 			}
 		}
-		if(dhcp_offer_state == DHCP_OFFR_RCVD) {
-			if (!nagios_flag && !json_flag) {
-				fprintf(stdout, "DHCP offer received\t - ");
-			} else if(!nagios_flag) {
-				if(!json_first) {
-					fprintf(stdout, ",");
-				} else {
-					json_first = 0;
-				}
-
-				fprintf(stdout, "{\"msg\":\"DHCP offer received - %s\","
-						"\"result\":\"success\","
-						"\"result-type\":\"OFFER\","
-						"\"result-value\":\"%s\""
-						"}",
-					get_ip_str(dhcph_g->dhcp_yip), get_ip_str(dhcph_g->dhcp_yip));
-			}
-
-			set_serv_id_opt50();
-			if (!nagios_flag && !json_flag)
-  				fprintf(stdout, "Offered IP : %s\n", get_ip_str(dhcph_g->dhcp_yip));
-			if(!nagios_flag && verbose) { 
-				print_dhinfo(DHCP_MSGOFFER);
-			}
-		}
 	}
+    if (diskover_only) {
+        if (nagios_flag) {
+            if (received_count > 1) fprintf(stdout, "OK: DHCP offer received #%i\t - ", received_count);
+            else                    fprintf(stdout, "OK: DHCP offer received\t - ");
+            fprintf(stdout, "Gateway : %s; ", get_ip_str(rec_gw_addr));
+            fprintf(stdout, "DHCP Srv.: %s\n",get_ip_str(rec_srv_addr));
+        }
+        exit(0);
+    }
 	/* Reset the dhopt buffer to build DHCP request options  */
 	reset_dhopt_size();
 	build_option53(DHCP_MSGREQUEST); 

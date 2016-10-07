@@ -326,6 +326,9 @@ struct custom_dhcp_option_hdr
  */
 #define MINIMUM_PACKET_SIZE 300
 
+
+extern void getDhcpServerIp(u_int32_t *pDhcpIp, u_int32_t *pGwIp);
+
 #endif  /* __HEADERS_H */
 
 /* EOF */
