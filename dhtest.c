@@ -698,13 +698,16 @@ int main(int argc, char *argv[])
         if (nagios_flag) {
             if (received_count > 1) fprintf(stdout, "OK: DHCP offer received #%i - ", received_count);
             else                    fprintf(stdout, "OK: DHCP offer received - ");
-            fprintf(stdout, "Offer IP: %s; ", get_ip_str(rec_gw_addr));
+            fprintf(stdout, "Offer IP: %s; ", get_ip_str(dhcph_g->dhcp_yip));
             fprintf(stdout, "Gateway : %s; ", get_ip_str(rec_gw_addr));
-            fprintf(stdout, "Server : %s\n",  get_ip_str(dhcph_g->dhcp_yip));
+            fprintf(stdout, "Server : %s\n",  get_ip_str(rec_srv_addr));
         }
         exit(0);
     }
-	/* Reset the dhopt buffer to build DHCP request options  */
+    if(timeout) {
+        time_last = time(NULL);
+    }
+    /* Reset the dhopt buffer to build DHCP request options  */
 	reset_dhopt_size();
 	build_option53(DHCP_MSGREQUEST); 
 	build_option50();
