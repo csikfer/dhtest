@@ -599,9 +599,9 @@ int main(int argc, char *argv[])
     int received_count = 0;
     while(dhcp_offer_state != DHCP_OFFR_RCVD || sniff) {
 
-        if (sniff && received_count > 0 && dhcp_offer_state == DHCP_DISC_RESEND) break;
+        if (received_count > 0 && dhcp_offer_state == DHCP_DISC_RESEND) break;
 		/* Sends DHCP discover packet */
-        if (dhcp_offer_state == 0 || dhcp_offer_state == DHCP_DISC_RESEND) {
+        if (received_count == 0) {
             send_packet(DHCP_MSGDISCOVER);
         }
 		/*
@@ -696,10 +696,11 @@ int main(int argc, char *argv[])
 	}
     if (diskover_only) {
         if (nagios_flag) {
-            if (received_count > 1) fprintf(stdout, "OK: DHCP offer received #%i\t - ", received_count);
-            else                    fprintf(stdout, "OK: DHCP offer received\t - ");
+            if (received_count > 1) fprintf(stdout, "OK: DHCP offer received #%i - ", received_count);
+            else                    fprintf(stdout, "OK: DHCP offer received - ");
+            fprintf(stdout, "Offer IP: %s; ", get_ip_str(rec_gw_addr));
             fprintf(stdout, "Gateway : %s; ", get_ip_str(rec_gw_addr));
-            fprintf(stdout, "DHCP Srv.: %s\n",get_ip_str(rec_srv_addr));
+            fprintf(stdout, "Server : %s\n",  get_ip_str(dhcph_g->dhcp_yip));
         }
         exit(0);
     }
