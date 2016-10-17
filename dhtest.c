@@ -52,6 +52,7 @@ struct custom_dhcp_option_hdr custom_dhcp_options[MAX_CUSTOM_DHCP_OPTIONS];
 char dhmac_fname[20];
 char iface_name[30] = { 0 };
 char ip_str[128];
+
 u_int8_t dhmac_flag = 0;
 u_int32_t server_id = { 0 }, option50_ip = { 0 };
 u_int32_t dhcp_xid = 0;  
@@ -72,11 +73,10 @@ u_int8_t json_flag = 0;
 u_int8_t json_first = 1;
 u_int8_t diskover_only = 0;
 u_int8_t sniff = 0;
-uint32_t auth_srv_addr = 0;
-uint32_t auth_gw_addr = 0;
-
-uint32_t rec_srv_addr = 0;
-uint32_t rec_gw_addr = 0;
+uint32_t auth_srv_addrs[MAX_ADDRESSES];
+uint32_t auth_gw_addrs[MAX_ADDRESSES];
+u_int8_t auth_srv_addr_num = 0;
+u_int8_t auth_gw_addr_num = 0;
 
 char *giaddr = "0.0.0.0";
 char *server_addr = "255.255.255.255";
@@ -472,10 +472,10 @@ int main(int argc, char *argv[])
                 if (timeout == 0) timeout = 3;  // default time out
                 break;
             case 'A':
-                auth_srv_addr = inet_addr(optarg);
+                add_address(inet_addr(optarg), &auth_srv_addr_num, auth_srv_addrs);
                 break;
             case 'G':
-                auth_gw_addr = inet_addr(optarg);
+                add_address(inet_addr(optarg), &auth_gw_addr_num, auth_gw_addrs);
                 break;
             default:
 				exit(2);
@@ -611,22 +611,24 @@ int main(int argc, char *argv[])
         dhcp_offer_state = recv_packet(DHCP_MSGOFFER);
 
         if (dhcp_offer_state == DHCP_OFFR_RCVD) {
-            if (diskover_only || auth_srv_addr || auth_gw_addr) {
-                getDhcpServerIp(&rec_srv_addr , &rec_gw_addr);
-                if ((auth_srv_addr != 0 && auth_srv_addr != rec_srv_addr)
-                 || (auth_gw_addr  != 0 && auth_gw_addr  != rec_gw_addr )) {
+            if (diskover_only || auth_srv_addr_num || auth_gw_addr_num) {
+                int srv, gw;
+                getDhcpServerIp();
+                srv = auth_srv_addr_num != 0 && !is_auth_addresses(rec_srv_addrs, rec_srv_addrs_num, auth_srv_addrs,  auth_srv_addr_num);
+                gw  = auth_gw_addr_num  != 0 && !is_auth_addresses(rec_gw_addrs,  rec_gw_addrs_num,  auth_gw_addrs,   auth_gw_addr_num);
+                if (srv || gw)  {
                     if (nagios_flag) {
-                        fprintf(stdout, "CRITICAL: Offer IP: %s; ", get_ip_str(dhcph_g->dhcp_yip));
+                        fprintf(stdout, "CRITICAL: Offer IP: %s; ", get_ips_str(rec_offer_addrs_num, rec_offer_addrs));
 
-                        if (auth_gw_addr  != 0 && auth_gw_addr  != rec_gw_addr)
-                            fprintf(stdout, "Unauthorized gateway : %s; ", get_ip_str(rec_gw_addr));
+                        if (gw)
+                            fprintf(stdout, "Unauthorized (one of) gateway : %s; ", get_ips_str(rec_gw_addrs_num, rec_gw_addrs));
                         else
-                            fprintf(stdout, "Gateway : %s; ", get_ip_str(rec_gw_addr));
+                            fprintf(stdout, "Gateway(s) : %s; ", get_ips_str(rec_gw_addrs_num, rec_gw_addrs));
 
-                        if (auth_srv_addr != 0 && auth_srv_addr != rec_srv_addr)
-                            fprintf(stdout, "Unauthorized server : %s\n", get_ip_str(rec_srv_addr));
+                        if (srv)
+                            fprintf(stdout, "Unauthorized (one of) server : %s\n", get_ips_str(rec_srv_addrs_num, rec_srv_addrs));
                         else
-                            fprintf(stdout, "DHCP Srv.: %s\n",get_ip_str(rec_srv_addr));
+                            fprintf(stdout, "DHCP Srv.()s: %s\n", get_ips_str(rec_srv_addrs_num, rec_srv_addrs));
 
                         exit(2);
                     }
@@ -634,12 +636,14 @@ int main(int argc, char *argv[])
                         ...
                     }*/
                     else {
-                        if (auth_srv_addr != 0 && auth_srv_addr != rec_srv_addr) {
-                            fprintf(stdout, "Unauthorized DHCP server : %s !\n", get_ip_str(rec_srv_addr));
+                        if (srv) {
+                            fprintf(stdout, "Unauthorized (one of) DHCP server : %s !\n", get_ips_str(rec_srv_addrs_num, rec_srv_addrs));
                         }
-                        if (auth_gw_addr != 0 && auth_gw_addr != rec_gw_addr) {
-                            fprintf(stdout, "Unauthorized gateway : %s !\n", get_ip_str(rec_gw_addr));
+                        if (gw) {
+                            fprintf(stdout, "Unauthorized (one of) gateway : %s !\n", get_ips_str(rec_gw_addrs_num, rec_gw_addrs));
                         }
+                        rec_gw_addrs_num = 0;
+                        rec_srv_addrs_num = 0;
                     }
                 }
             }
@@ -698,9 +702,9 @@ int main(int argc, char *argv[])
         if (nagios_flag) {
             if (received_count > 1) fprintf(stdout, "OK: DHCP offer received #%i - ", received_count);
             else                    fprintf(stdout, "OK: DHCP offer received - ");
-            fprintf(stdout, "Offer IP: %s; ", get_ip_str(dhcph_g->dhcp_yip));
-            fprintf(stdout, "Gateway : %s; ", get_ip_str(rec_gw_addr));
-            fprintf(stdout, "Server : %s\n",  get_ip_str(rec_srv_addr));
+            fprintf(stdout, "Offer IP: %s; ", get_ips_str(rec_offer_addrs_num, rec_offer_addrs));
+            fprintf(stdout, "Gateway : %s; ", get_ips_str(rec_gw_addrs_num,    rec_gw_addrs));
+            fprintf(stdout, "Server : %s\n",  get_ips_str(rec_srv_addrs_num,   rec_srv_addrs));
         }
         exit(0);
     }

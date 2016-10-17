@@ -84,6 +84,14 @@ extern u_int16_t icmp_len;
 extern struct timeval tval_listen;
 extern u_int32_t listen_timeout;
 
+uint32_t rec_srv_addrs[MAX_ADDRESSES];
+uint32_t rec_gw_addrs[MAX_ADDRESSES];
+uint32_t rec_offer_addrs[MAX_ADDRESSES];
+u_int8_t rec_srv_addrs_num;
+u_int8_t rec_gw_addrs_num;
+u_int8_t rec_offer_addrs_num;
+
+
 /*
  * Opens PF_PACKET socket and return error if socket
  * opens fails
@@ -1205,27 +1213,70 @@ int set_serv_id_opt50()
 
 /**/
 
-void getDhcpServerIp(u_int32_t *pDhcpIp, u_int32_t *pGwIp)
+void add_address(uint32_t _a, u_int8_t *_pn, uint32_t *_pa)
 {
+    if (*_pn >= MAX_ADDRESSES) {
+        fprintf(stderr, "Error: To many adress.\n");
+        exit(2);
+    }
+    _pa[*_pn] = _a;
+    ++(*_pn);
+}
+
+
+char * get_ips_str(u_int8_t _n, uint32_t *_pa)
+{
+    u_int8_t i;
+    static char buff[MAX_ADDRESSES * 17 +1];
+    buff[0] = 0;
+    for (i = 0; i < _n; ++i) {
+        if (i > 0) strncat(buff, ", ", sizeof(buff) -1);
+        strncat(buff, get_ip_str(_pa[i]), sizeof(buff) -1);
+    }
+    return buff;
+}
+
+int find_address(uint32_t _a, u_int8_t _n, uint32_t *_pa)
+{
+    u_int8_t i;
+    for (i = 0; i < _n; ++i) {
+        if (_a == _pa[i]) return i;
+    }
+    return -1;
+}
+
+int is_auth_addresses(uint32_t *_paddr, u_int8_t _naddr, uint32_t *_pauth, u_int8_t _nauth)
+{
+    u_int8_t i;
+    for (i = 0; i < _naddr; ++i) {
+        if (0 > find_address(_paddr[i], _nauth, _pauth)) return 0;  // FALSE
+    }
+    return 1; // TRUE
+
+}
+
+
+void getDhcpServerIp()
+{
+    u_int16_t tmp;
     map_all_layer_ptr(DHCP_MSGOFFER);
 
+    add_address(dhcph_g->dhcp_yip, &rec_offer_addrs_num, rec_offer_addrs);
     while(*(dhopt_pointer_g) != DHCP_END) {
 
         switch(*(dhopt_pointer_g)) {
             case DHCP_SERVIDENT:
-                *pDhcpIp = *(u_int32_t *)(dhopt_pointer_g + 2);
-                // printf("DHCP_SERVIDENT: %s\n", get_ip_str(*pDhcpIp));
+                add_address(*(u_int32_t *)(dhopt_pointer_g + 2), &rec_srv_addrs_num, rec_srv_addrs);
                 break;
             case DHCP_LEASETIME:
                 break;
             case DHCP_SUBNETMASK:
                 break;
             case DHCP_ROUTER:
-                // First only !!!
-                if (0 < (*(dhopt_pointer_g + 1) / 4))
-                    *pGwIp = *(u_int32_t *)(dhopt_pointer_g + 2);
-                // printf("DHCP_SERVIDENT: %s\n", get_ip_str(*pGwIp));
-                break;
+                for(tmp = 0; tmp < (*(dhopt_pointer_g + 1) / 4); tmp++) {
+                    add_address(*(u_int32_t *)(dhopt_pointer_g + 2 + (tmp * 4)), &rec_gw_addrs_num, rec_gw_addrs);
+                }
+            break;
             case DHCP_DNS:
 /*				for(tmp = 0; tmp < ((*(dhopt_pointer_g + 1)) / 4); tmp++) {
                     if(json_flag) {

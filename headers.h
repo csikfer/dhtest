@@ -326,8 +326,22 @@ struct custom_dhcp_option_hdr
  */
 #define MINIMUM_PACKET_SIZE 300
 
+#define MAX_ADDRESSES   8
+extern uint32_t rec_srv_addrs[MAX_ADDRESSES];
+extern uint32_t rec_gw_addrs[MAX_ADDRESSES];
+extern uint32_t rec_offer_addrs[MAX_ADDRESSES];
+extern u_int8_t rec_srv_addrs_num;
+extern u_int8_t rec_gw_addrs_num;
+extern u_int8_t rec_offer_addrs_num;
 
-extern void getDhcpServerIp(u_int32_t *pDhcpIp, u_int32_t *pGwIp);
+extern void add_address(uint32_t _a, u_int8_t *_pn, uint32_t *_pa);
+extern int is_auth_addresses(uint32_t *_paddr, u_int8_t _naddr, uint32_t *_pauth, u_int8_t _nauth);
+extern char * get_ips_str(u_int8_t _n, uint32_t *_pa);
+extern int find_address(uint32_t _a, u_int8_t _n, uint32_t *_pa);
+
+
+
+extern void getDhcpServerIp();
 
 #endif  /* __HEADERS_H */
 
